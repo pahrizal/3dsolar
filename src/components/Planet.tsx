@@ -16,6 +16,24 @@ interface PlanetProps {
   orbitTrackColor?: string;
 }
 
+// Simplex-like noise function for marble effect
+function noise2D(x: number, y: number): number {
+  const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+  return n - Math.floor(n);
+}
+
+function fbm(x: number, y: number, octaves: number = 4): number {
+  let value = 0;
+  let amplitude = 0.5;
+  let frequency = 1;
+  for (let i = 0; i < octaves; i++) {
+    value += amplitude * (noise2D(x * frequency, y * frequency) * 2 - 1);
+    frequency *= 2;
+    amplitude *= 0.5;
+  }
+  return value;
+}
+
 function createRingTexture(color: string, opacity: number): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
@@ -56,6 +74,7 @@ function createTerrestrialTexture(color1: string, color2: string): THREE.CanvasT
   canvas.height = 256;
   const ctx = canvas.getContext('2d')!;
   
+  // Base gradient
   const gradient = ctx.createLinearGradient(0, 0, 0, 256);
   gradient.addColorStop(0, color1);
   gradient.addColorStop(0.5, color2);
@@ -63,27 +82,61 @@ function createTerrestrialTexture(color1: string, color2: string): THREE.CanvasT
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 512, 256);
   
-  for (let i = 0; i < 400; i++) {
+  // Marble vein effect
+  for (let x = 0; x < 512; x += 2) {
+    for (let y = 0; y < 256; y += 2) {
+      const nx = x / 80;
+      const ny = y / 40;
+      const marble = Math.abs(Math.sin(nx * 2 + ny + fbm(nx, ny, 3) * 3));
+      const vein = Math.pow(marble, 0.8);
+      const alpha = vein * 0.4;
+      
+      if (alpha > 0.05) {
+        ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+        ctx.fillRect(x, y, 2, 2);
+      }
+    }
+  }
+  
+  // Crater-like features
+  for (let i = 0; i < 80; i++) {
     const x = Math.random() * 512;
     const y = Math.random() * 256;
-    const radius = Math.random() * 8 + 2;
-    const alpha = Math.random() * 0.3 + 0.1;
+    const radius = Math.random() * 15 + 5;
     
+    // Crater rim
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+    ctx.strokeStyle = `rgba(0, 0, 0, ${Math.random() * 0.2 + 0.1})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // Crater interior shadow
+    const innerRadius = radius * 0.7;
+    ctx.beginPath();
+    ctx.arc(x, y, innerRadius, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(0, 0, 0, ${Math.random() * 0.15 + 0.05})`;
     ctx.fill();
   }
   
-  for (let i = 0; i < 200; i++) {
-    const x = Math.random() * 512;
-    const y = Math.random() * 256;
-    const radius = Math.random() * 3 + 1;
-    
+  // Highlight streaks (marble veins in lighter color)
+  for (let i = 0; i < 30; i++) {
+    const startX = Math.random() * 512;
+    const startY = Math.random() * 256;
     ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.15})`;
-    ctx.fill();
+    ctx.moveTo(startX, startY);
+    
+    let currX = startX;
+    let currY = startY;
+    for (let j = 0; j < 8; j++) {
+      currX += (Math.random() - 0.5) * 30;
+      currY += (Math.random() - 0.5) * 20;
+      ctx.lineTo(currX, currY);
+    }
+    
+    ctx.strokeStyle = `rgba(255, 255, 255, ${Math.random() * 0.1 + 0.05})`;
+    ctx.lineWidth = Math.random() * 2 + 1;
+    ctx.stroke();
   }
   
   return new THREE.CanvasTexture(canvas);
@@ -95,36 +148,66 @@ function createGasGiantTexture(color1: string, color2: string): THREE.CanvasText
   canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
   
-  for (let y = 0; y < 512; y += 4) {
-    const bandIntensity = Math.sin((y / 512) * Math.PI * 8) * 0.5 + 0.5;
-    const color = bandIntensity > 0.5 ? color1 : color2;
-    ctx.fillStyle = color;
-    ctx.fillRect(0, y, 1024, 4);
+  // Marble-like turbulent bands
+  for (let y = 0; y < 512; y++) {
+    for (let x = 0; x < 1024; x += 4) {
+      const nx = x / 100;
+      const ny = y / 50;
+      
+      // Turbulent marble pattern
+      const turbulence = fbm(nx * 0.5, ny * 2, 4);
+      const band = Math.sin(y / 20 + turbulence * 5);
+      const swirl = Math.sin(nx * 2 + turbulence * 3) * 0.5;
+      
+      const intensity = (band + swirl) * 0.5 + 0.5;
+      
+      // Blend colors based on intensity
+      const r1 = parseInt(color1.slice(1, 3), 16);
+      const g1 = parseInt(color1.slice(3, 5), 16);
+      const b1 = parseInt(color1.slice(5, 7), 16);
+      const r2 = parseInt(color2.slice(1, 3), 16);
+      const g2 = parseInt(color2.slice(3, 5), 16);
+      const b2 = parseInt(color2.slice(5, 7), 16);
+      
+      const r = Math.floor(r1 * intensity + r2 * (1 - intensity));
+      const g = Math.floor(g1 * intensity + g2 * (1 - intensity));
+      const b = Math.floor(b1 * intensity + b2 * (1 - intensity));
+      
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+      ctx.fillRect(x, y, 4, 1);
+    }
   }
   
-  for (let i = 0; i < 50; i++) {
+  // Swirling storm features (like Jupiter's Great Red Spot)
+  for (let i = 0; i < 5; i++) {
+    const spotX = Math.random() * 1024;
+    const spotY = Math.random() * 512;
+    const spotRadius = Math.random() * 60 + 30;
+    
+    // Create swirling pattern
+    for (let angle = 0; angle < Math.PI * 6; angle += 0.1) {
+      const radius = spotRadius * (1 - angle / (Math.PI * 6));
+      const spiralX = spotX + Math.cos(angle) * radius * (1 + Math.sin(angle * 3) * 0.3);
+      const spiralY = spotY + Math.sin(angle) * radius * 0.6;
+      
+      const alpha = (1 - angle / (Math.PI * 6)) * 0.3;
+      ctx.fillStyle = `rgba(180, 100, 80, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(spiralX, spotY + (spiralY - spotY) * 0.5, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  
+  // Add subtle vertical streaks (characteristic of gas giants)
+  for (let i = 0; i < 100; i++) {
     const x = Math.random() * 1024;
     const y = Math.random() * 512;
-    const width = Math.random() * 200 + 50;
-    const height = Math.random() * 20 + 5;
+    const height = Math.random() * 100 + 50;
+    const width = Math.random() * 8 + 2;
     
-    ctx.fillStyle = `rgba(${Math.random() > 0.5 ? 255 : 0}, ${Math.random() > 0.5 ? 200 : 100}, ${Math.random() > 0.5 ? 150 : 50}, 0.1)`;
-    ctx.beginPath();
-    ctx.ellipse(x, y, width, height, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.08})`;
+    ctx.fillRect(x, y, width, height);
   }
-  
-  const spotX = 700;
-  const spotY = 300;
-  const spotRadius = 40;
-  ctx.beginPath();
-  ctx.ellipse(spotX, spotY, spotRadius * 1.5, spotRadius, 0, 0, Math.PI * 2);
-  const spotGradient = ctx.createRadialGradient(spotX, spotY, 0, spotX, spotY, spotRadius * 1.5);
-  spotGradient.addColorStop(0, '#cc4422');
-  spotGradient.addColorStop(0.5, '#aa3311');
-  spotGradient.addColorStop(1, 'transparent');
-  ctx.fillStyle = spotGradient;
-  ctx.fill();
   
   return new THREE.CanvasTexture(canvas);
 }
@@ -135,6 +218,7 @@ function createIceGiantTexture(color1: string, color2: string): THREE.CanvasText
   canvas.height = 256;
   const ctx = canvas.getContext('2d')!;
   
+  // Base gradient
   const gradient = ctx.createLinearGradient(0, 0, 512, 256);
   gradient.addColorStop(0, color1);
   gradient.addColorStop(0.3, color2);
@@ -143,10 +227,38 @@ function createIceGiantTexture(color1: string, color2: string): THREE.CanvasText
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 512, 256);
   
-  for (let y = 0; y < 256; y += 8) {
-    const wave = Math.sin((y / 256) * Math.PI * 6) * 20;
-    ctx.fillStyle = `rgba(255, 255, 255, ${0.05 + Math.random() * 0.05})`;
-    ctx.fillRect(0, y + wave, 512, 4);
+  // Marble-like atmospheric bands with flowing patterns
+  for (let y = 0; y < 256; y += 2) {
+    for (let x = 0; x < 512; x += 2) {
+      const nx = x / 60;
+      const ny = y / 40;
+      
+      // Flowing marble pattern
+      const flow = Math.sin(ny * 3 + Math.sin(nx * 2) * 2) * 0.5 + 0.5;
+      const turbulence = fbm(nx * 0.8, ny * 1.5, 3);
+      const marble = flow + turbulence * 0.3;
+      
+      const alpha = Math.abs(marble - 0.5) * 0.25;
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.fillRect(x, y, 2, 2);
+    }
+  }
+  
+  // Subtle swirling storms
+  for (let i = 0; i < 3; i++) {
+    const spotX = Math.random() * 512;
+    const spotY = Math.random() * 256;
+    const radius = Math.random() * 20 + 15;
+    
+    const gradient = ctx.createRadialGradient(spotX, spotY, 0, spotX, spotY, radius);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.15)');
+    gradient.addColorStop(0.5, 'rgba(200, 220, 255, 0.08)');
+    gradient.addColorStop(1, 'transparent');
+    
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(spotX, spotY, radius, 0, Math.PI * 2);
+    ctx.fill();
   }
   
   return new THREE.CanvasTexture(canvas);
